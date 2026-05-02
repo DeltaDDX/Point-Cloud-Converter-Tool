@@ -3,6 +3,20 @@ const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 
+function getPythonExecutable() {
+    const candidates = [
+        path.join(__dirname, '.venv', 'Scripts', 'python.exe'),
+        path.join(__dirname, 'venv', 'Scripts', 'python.exe')
+    ];
+
+    const pythonExecutable = candidates.find(candidate => fs.existsSync(candidate));
+    if (!pythonExecutable) {
+        throw new Error(`Python executable not found. Checked: ${candidates.join(', ')}`);
+    }
+
+    return pythonExecutable;
+}
+
 function createWindow() {
     const win = new BrowserWindow({
         width: 800,
@@ -26,13 +40,16 @@ app.on('window-all-closed', () => {
 ipcMain.handle('start-precache', async (event, inputPath) => {
     // We launch the process and don't wait for the result.
     // The Python script handles file locking to prevent conflicts.
-    const pythonExecutable = path.join(__dirname, 'venv', 'Scripts', 'python.exe');
+    const pythonExecutable = getPythonExecutable();
     const scriptPath = path.join(__dirname, 'backend', 'generate_chm.py');
 
     console.log(`Starting background pre-cache for: ${inputPath}`);
     
     // Pass the flag --precache
-    spawn(pythonExecutable, ['-u', scriptPath, inputPath, '--precache']);
+    const pythonProcess = spawn(pythonExecutable, ['-u', scriptPath, inputPath, '--precache']);
+    pythonProcess.on('error', (error) => {
+        console.error(`Pre-cache failed to start: ${error.message}`);
+    });
     
     return { status: 'started' };
 });
@@ -40,7 +57,14 @@ ipcMain.handle('start-precache', async (event, inputPath) => {
 // --- HANDLER: Generate Histogram ---
 ipcMain.handle('generate-histogram', async (event, inputPath) => {
     return new Promise((resolve, reject) => {
-        const pythonExecutable = path.join(__dirname, 'venv', 'Scripts', 'python.exe');
+        let pythonExecutable;
+        try {
+            pythonExecutable = getPythonExecutable();
+        } catch (error) {
+            reject(error.message);
+            return;
+        }
+
         const scriptPath = path.join(__dirname, 'backend', 'generate_histogram.py');
         const tempDir = app.getPath('temp'); 
         const imgName = `hist_${Date.now()}.png`;
@@ -52,6 +76,7 @@ ipcMain.handle('generate-histogram', async (event, inputPath) => {
         let dataString = '';
         pythonProcess.stdout.on('data', (data) => { dataString += data.toString(); });
         pythonProcess.stderr.on('data', (data) => { console.error(`Histogram Error: ${data}`); });
+        pythonProcess.on('error', (error) => { reject(`Histogram failed to start: ${error.message}`); });
 
         pythonProcess.on('close', (code) => {
             if (code === 0) {
@@ -96,7 +121,13 @@ ipcMain.handle('run-python', async (event, args) => {
     }
 
     return new Promise((resolve, reject) => {
-        const pythonExecutable = path.join(__dirname, 'venv', 'Scripts', 'python.exe');
+        let pythonExecutable;
+        try {
+            pythonExecutable = getPythonExecutable();
+        } catch (error) {
+            reject(error.message);
+            return;
+        }
         
         let scriptName = '';
         if (mode === 'height') scriptName = 'generate_chm.py';
@@ -141,6 +172,10 @@ ipcMain.handle('run-python', async (event, args) => {
         pythonProcess.stderr.on('data', (data) => {
             console.error(`Python Error: ${data}`);
             capturedError += data.toString();
+        });
+
+        pythonProcess.on('error', (error) => {
+            reject(`Python process failed to start: ${error.message}`);
         });
 
         pythonProcess.on('close', (code) => {

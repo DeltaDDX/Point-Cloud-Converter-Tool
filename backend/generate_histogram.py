@@ -7,7 +7,7 @@ import laspy
 import numpy as np
 import matplotlib.pyplot as plt
 import utils
-import generate_chm # Import the shared logic
+from dtm import generate_dtm_grid
 
 # Settings for histogram generation
 HIST_RESOLUTION = 2.0 # Coarser res is fine for DTM generation for stats
@@ -24,7 +24,7 @@ def generate_normalized_histogram(input_path, output_path):
 
             # 2. Generate DTM (Ground Model) using the robust logic
             # This handles both Classified and Unclassified inputs automatically
-            dtm_grid, has_class_2 = generate_chm.generate_dtm_grid(las_file, width, height, HIST_RESOLUTION, bounds)
+            dtm_grid, has_class_2 = generate_dtm_grid(las_file, width, height, HIST_RESOLUTION, bounds)
             
             if dtm_grid is None:
                 raise Exception("Could not generate Ground Model (DTM)")
