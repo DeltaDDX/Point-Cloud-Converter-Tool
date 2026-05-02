@@ -1,0 +1,1 @@
+# This file generates features as inputs for the model, including: height percentiles, canopy cover thresholds, vertical bin densities, largest vertical gap, return count.
