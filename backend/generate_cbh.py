@@ -12,6 +12,19 @@ from cbh.pipeline import generate_cbh
 from train_cbh_proxy_model import train_proxy_model
 
 
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DEFAULT_CBH_TRAINING_DIR = os.path.join(PROJECT_ROOT, "data", "cbh_training")
+DEFAULT_CBH_MODEL_PATH = os.path.join(
+    DEFAULT_CBH_TRAINING_DIR,
+    "models",
+    "cbh_proxy_model.pkl",
+)
+DEFAULT_CBH_MASTER_CSV_PATH = os.path.join(
+    DEFAULT_CBH_TRAINING_DIR,
+    "proxy_features_master.csv",
+)
+
+
 def _get_float(params, name, default, minimum=0, allow_zero=False):
     try:
         value = float(params.get(name, default))
@@ -150,11 +163,8 @@ def generate_cbh_outputs(input_path, output_dir, resolution, params):
         if not feature_csv:
             raise ValueError("CBH feature CSV was not generated; cannot train model")
 
-        model_path = params.get("modelPath") or os.path.join(output_dir, "cbh_proxy_model.pkl")
-        master_csv_path = params.get("masterCsvPath") or os.path.join(
-            output_dir,
-            "proxy_features_master.csv",
-        )
+        model_path = params.get("modelPath") or DEFAULT_CBH_MODEL_PATH
+        master_csv_path = params.get("masterCsvPath") or DEFAULT_CBH_MASTER_CSV_PATH
         utils.send_progress(96, "Training persistent CBH proxy model...")
         train_proxy_model(
             [feature_csv],

@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getFilePath: (file) => webUtils.getPathForFile(file),
 
     generateHistogram: (path) => ipcRenderer.invoke('generate-histogram', path),
+    listCbhModels: () => ipcRenderer.invoke('list-cbh-models'),
     
     onProgress: (callback) => ipcRenderer.on('progress-update', (event, value) => callback(value)),
 

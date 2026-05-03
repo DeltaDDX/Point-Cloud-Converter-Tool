@@ -36,6 +36,30 @@ app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();
 });
 
+function getCbhModelDirectory() {
+    return path.join(__dirname, 'data', 'cbh_training', 'models');
+}
+
+ipcMain.handle('list-cbh-models', async () => {
+    const modelDir = getCbhModelDirectory();
+    if (!fs.existsSync(modelDir)) {
+        return [];
+    }
+
+    return fs.readdirSync(modelDir)
+        .filter(fileName => fileName.toLowerCase().endsWith('.pkl'))
+        .map(fileName => {
+            const modelPath = path.join(modelDir, fileName);
+            const stat = fs.statSync(modelPath);
+            return {
+                name: fileName,
+                path: modelPath,
+                modifiedMs: stat.mtimeMs
+            };
+        })
+        .sort((a, b) => b.modifiedMs - a.modifiedMs);
+});
+
 // --- NEW HANDLER: Background Pre-cache ---
 ipcMain.handle('start-precache', async (event, inputPath) => {
     // We launch the process and don't wait for the result.

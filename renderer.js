@@ -174,9 +174,12 @@ modeSelector.addEventListener('change', (e) => {
             </select>
             <div id="cbhModelPicker" style="display: none; margin-top: 12px;">
                 <label class="has-tooltip" data-tooltip="Persistent .pkl model produced by proxy training">CBH Model File</label>
-                <input type="file" id="cbhModelFile" accept=".pkl">
+                <select id="cbhModelSelect">
+                    <option value="">Loading models...</option>
+                </select>
+                <div id="cbhModelStatus" class="field-note"></div>
             </div>
-            <div id="cbhTrainingNote" class="field-note">The selected output folder will receive this run's proxy labels, cbh_features.csv, proxy_features_master.csv, and an updated cbh_proxy_model.pkl.</div>
+            <div id="cbhTrainingNote" class="field-note">The selected output folder receives this run's rasters and CSV. The persistent model and master training CSV are saved inside this project under data/cbh_training.</div>
             <label class="has-tooltip" data-tooltip="Parameters for proxy labels, model features, and prediction postprocessing" style="margin-top: 16px;">5. CBH Parameters</label>
             <div class="subgrid">
                 <div>
@@ -235,7 +238,7 @@ modeSelector.addEventListener('change', (e) => {
     }
 });
 
-function updateCbhWorkflowUi() {
+async function updateCbhWorkflowUi() {
     const workflow = document.getElementById('cbhWorkflow');
     const modelPicker = document.getElementById('cbhModelPicker');
     const trainingNote = document.getElementById('cbhTrainingNote');
@@ -245,7 +248,51 @@ function updateCbhWorkflowUi() {
     modelPicker.style.display = isPredict ? 'block' : 'none';
     trainingNote.innerText = isPredict
         ? 'The selected output folder will receive cbh_predicted.tif, generated features, valid mask, and diagnostics.'
-        : "The selected output folder will receive this run's proxy labels, cbh_features.csv, proxy_features_master.csv, and an updated cbh_proxy_model.pkl.";
+        : "The selected output folder receives this run's rasters and CSV. The persistent model and master training CSV are saved inside this project under data/cbh_training.";
+
+    if (isPredict) {
+        await populateCbhModelSelect();
+    }
+}
+
+async function populateCbhModelSelect() {
+    const select = document.getElementById('cbhModelSelect');
+    const status = document.getElementById('cbhModelStatus');
+    if (!select || !status) return;
+
+    select.innerHTML = '<option value="">Loading models...</option>';
+    status.innerText = '';
+
+    try {
+        const models = await window.electronAPI.listCbhModels();
+        if (!models || models.length === 0) {
+            select.innerHTML = '<option value="">No project models found</option>';
+            status.innerText = 'Train a proxy model first. Models are read from data/cbh_training/models.';
+            return;
+        }
+
+        select.innerHTML = models.map((model) => {
+            const modified = new Date(model.modifiedMs).toLocaleString();
+            return `<option value="${escapeHtmlAttribute(model.path)}">${escapeHtml(model.name)} - ${escapeHtml(modified)}</option>`;
+        }).join('');
+        status.innerText = 'Models are read from data/cbh_training/models.';
+    } catch (err) {
+        select.innerHTML = '<option value="">Could not load models</option>';
+        status.innerText = String(err);
+    }
+}
+
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function escapeHtmlAttribute(value) {
+    return escapeHtml(value);
 }
 
 function parseNumberInput(id, label, options = {}) {
@@ -304,11 +351,11 @@ function getCbhParams() {
     };
 
     if (workflow === 'predict') {
-        const modelFileInput = document.getElementById('cbhModelFile');
-        if (!modelFileInput || modelFileInput.files.length === 0) {
-            throw new Error('Select a CBH model file for prediction.');
+        const modelSelect = document.getElementById('cbhModelSelect');
+        if (!modelSelect || !modelSelect.value) {
+            throw new Error('Select a CBH model for prediction.');
         }
-        params.modelPath = window.electronAPI.getFilePath(modelFileInput.files[0]);
+        params.modelPath = modelSelect.value;
     }
 
     return params;
