@@ -4,7 +4,10 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 
 function getPythonExecutable() {
+    const baseDir = app.isPackaged ? process.resourcesPath : __dirname;
     const candidates = [
+        path.join(baseDir, '.venv', 'Scripts', 'python.exe'),
+        path.join(baseDir, 'venv', 'Scripts', 'python.exe'),
         path.join(__dirname, '.venv', 'Scripts', 'python.exe'),
         path.join(__dirname, 'venv', 'Scripts', 'python.exe')
     ];
@@ -15,6 +18,18 @@ function getPythonExecutable() {
     }
 
     return pythonExecutable;
+}
+
+function getBackendScriptPath(scriptName) {
+    const baseDir = app.isPackaged ? process.resourcesPath : __dirname;
+    return path.join(baseDir, 'backend', scriptName);
+}
+
+function getPythonEnvironment() {
+    return {
+        ...process.env,
+        CBH_TRAINING_DIR: getCbhTrainingDirectory()
+    };
 }
 
 function createWindow() {
@@ -37,7 +52,14 @@ app.on('window-all-closed', () => {
 });
 
 function getCbhModelDirectory() {
-    return path.join(__dirname, 'data', 'cbh_training', 'models');
+    return path.join(getCbhTrainingDirectory(), 'models');
+}
+
+function getCbhTrainingDirectory() {
+    if (app.isPackaged) {
+        return path.join(app.getPath('userData'), 'cbh_training');
+    }
+    return path.join(__dirname, 'data', 'cbh_training');
 }
 
 ipcMain.handle('list-cbh-models', async () => {
@@ -65,12 +87,16 @@ ipcMain.handle('start-precache', async (event, inputPath) => {
     // We launch the process and don't wait for the result.
     // The Python script handles file locking to prevent conflicts.
     const pythonExecutable = getPythonExecutable();
-    const scriptPath = path.join(__dirname, 'backend', 'generate_chm.py');
+    const scriptPath = getBackendScriptPath('generate_chm.py');
 
     console.log(`Starting background pre-cache for: ${inputPath}`);
     
     // Pass the flag --precache
-    const pythonProcess = spawn(pythonExecutable, ['-u', scriptPath, inputPath, '--precache']);
+    const pythonProcess = spawn(
+        pythonExecutable,
+        ['-u', scriptPath, inputPath, '--precache'],
+        { env: getPythonEnvironment() }
+    );
     pythonProcess.on('error', (error) => {
         console.error(`Pre-cache failed to start: ${error.message}`);
     });
@@ -89,13 +115,13 @@ ipcMain.handle('generate-histogram', async (event, inputPath) => {
             return;
         }
 
-        const scriptPath = path.join(__dirname, 'backend', 'generate_histogram.py');
+        const scriptPath = getBackendScriptPath('generate_histogram.py');
         const tempDir = app.getPath('temp'); 
         const imgName = `hist_${Date.now()}.png`;
         const outputPath = path.join(tempDir, imgName);
 
         const scriptArgs = ['-u', scriptPath, inputPath, outputPath];
-        const pythonProcess = spawn(pythonExecutable, scriptArgs);
+        const pythonProcess = spawn(pythonExecutable, scriptArgs, { env: getPythonEnvironment() });
 
         let dataString = '';
         pythonProcess.stdout.on('data', (data) => { dataString += data.toString(); });
@@ -182,7 +208,7 @@ ipcMain.handle('run-python', async (event, args) => {
         }
         else return reject(`Unknown mode selected: ${mode}`);
 
-        const scriptPath = path.join(__dirname, 'backend', scriptName);
+        const scriptPath = getBackendScriptPath(scriptName);
 
         console.log(`Processing: ${inputPath}`);
         console.log(`Saving to: ${finalOutputPath}`);
@@ -219,7 +245,7 @@ ipcMain.handle('run-python', async (event, args) => {
         }
 
         function runProcess(scriptArgs) {
-            const pythonProcess = spawn(pythonExecutable, scriptArgs);
+            const pythonProcess = spawn(pythonExecutable, scriptArgs, { env: getPythonEnvironment() });
 
             pythonProcess.stdout.on('data', (data) => {
             const outputStr = data.toString();

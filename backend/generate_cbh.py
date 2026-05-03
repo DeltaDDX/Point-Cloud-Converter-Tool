@@ -13,7 +13,10 @@ from train_cbh_proxy_model import train_proxy_model
 
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DEFAULT_CBH_TRAINING_DIR = os.path.join(PROJECT_ROOT, "data", "cbh_training")
+DEFAULT_CBH_TRAINING_DIR = os.environ.get(
+    "CBH_TRAINING_DIR",
+    os.path.join(PROJECT_ROOT, "data", "cbh_training"),
+)
 DEFAULT_CBH_MODEL_PATH = os.path.join(
     DEFAULT_CBH_TRAINING_DIR,
     "models",
