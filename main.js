@@ -102,9 +102,11 @@ ipcMain.handle('run-python', async (event, args) => {
     let finalOutputPath = '';
 
     if (mode === 'cbh') {
-        const defaultPath = path.join(dir, `${name}_cbh_${resolution}m`);
+        const cbhWorkflow = cbhParams && cbhParams.workflow ? cbhParams.workflow : 'train';
+        const defaultSuffix = cbhWorkflow === 'predict' ? 'cbh_prediction' : 'cbh_training';
+        const defaultPath = path.join(dir, `${name}_${defaultSuffix}_${resolution}m`);
         const { canceled, filePaths } = await dialog.showOpenDialog(win, {
-            title: 'Choose CBH Output Folder',
+            title: cbhWorkflow === 'predict' ? 'Choose CBH Prediction Output Folder' : 'Choose CBH Training Output Folder',
             defaultPath,
             properties: ['openDirectory', 'createDirectory']
         });
@@ -150,7 +152,10 @@ ipcMain.handle('run-python', async (event, args) => {
         let scriptName = '';
         if (mode === 'height') scriptName = 'generate_chm.py';
         else if (mode === 'cover') scriptName = 'generate_cover.py';
-        else if (mode === 'cbh') scriptName = 'generate_cbh.py';
+        else if (mode === 'cbh') {
+            const cbhWorkflow = cbhParams && cbhParams.workflow ? cbhParams.workflow : 'train';
+            scriptName = cbhWorkflow === 'predict' ? 'predict_cbh.py' : 'generate_cbh.py';
+        }
         else return reject(`Unknown mode selected: ${mode}`);
 
         const scriptPath = path.join(__dirname, 'backend', scriptName);
@@ -158,23 +163,41 @@ ipcMain.handle('run-python', async (event, args) => {
         console.log(`Processing: ${inputPath}`);
         console.log(`Saving to: ${finalOutputPath}`);
 
-        const scriptArgs = [
-            '-u', scriptPath, inputPath, finalOutputPath, resolution
-        ];
-
-        if (mode === 'cbh') {
-            scriptArgs.push(JSON.stringify(cbhParams || {}));
-        } else {
-            const thresholdsToSend = thresholds || [];
-            scriptArgs.push(JSON.stringify(thresholdsToSend));
-        }
-
-        const pythonProcess = spawn(pythonExecutable, scriptArgs);
-
         let finalJsonResult = null;
         let capturedError = '';
 
-        pythonProcess.stdout.on('data', (data) => {
+        if (mode === 'cbh') {
+            const cbhWorkflow = cbhParams && cbhParams.workflow ? cbhParams.workflow : 'train';
+            const paramsToSend = { ...(cbhParams || {}) };
+            delete paramsToSend.workflow;
+            if (cbhWorkflow === 'train') {
+                paramsToSend.trainModel = true;
+            }
+
+            const scriptArgs = [
+                '-u', scriptPath, inputPath, finalOutputPath, resolution
+            ];
+            if (cbhWorkflow === 'predict') {
+                if (!cbhParams || !cbhParams.modelPath) {
+                    return reject('Select a CBH model before running prediction.');
+                }
+                scriptArgs.push(cbhParams.modelPath);
+            }
+            scriptArgs.push(JSON.stringify(paramsToSend));
+            runProcess(scriptArgs);
+        } else {
+            const scriptArgs = [
+                '-u', scriptPath, inputPath, finalOutputPath, resolution
+            ];
+            const thresholdsToSend = thresholds || [];
+            scriptArgs.push(JSON.stringify(thresholdsToSend));
+            runProcess(scriptArgs);
+        }
+
+        function runProcess(scriptArgs) {
+            const pythonProcess = spawn(pythonExecutable, scriptArgs);
+
+            pythonProcess.stdout.on('data', (data) => {
             const outputStr = data.toString();
             const lines = outputStr.split('\n');
             lines.forEach(line => {
@@ -189,28 +212,31 @@ ipcMain.handle('run-python', async (event, args) => {
                     }
                 } catch (e) {}
             });
-        });
+            });
 
-        pythonProcess.stderr.on('data', (data) => {
-            console.error(`Python Error: ${data}`);
-            capturedError += data.toString();
-        });
+            pythonProcess.stderr.on('data', (data) => {
+                console.error(`Python Error: ${data}`);
+                capturedError += data.toString();
+            });
 
-        pythonProcess.on('error', (error) => {
-            reject(`Python process failed to start: ${error.message}`);
-        });
+            pythonProcess.on('error', (error) => {
+                reject(`Python process failed to start: ${error.message}`);
+            });
 
-        pythonProcess.on('close', (code) => {
-            if (code === 0) {
-                if (finalJsonResult) {
-                    finalJsonResult.file = finalOutputPath; 
-                    resolve(finalJsonResult);
+            pythonProcess.on('close', (code) => {
+                if (code === 0) {
+                    if (finalJsonResult) {
+                        if (!finalJsonResult.file) {
+                            finalJsonResult.file = finalOutputPath;
+                        }
+                        resolve(finalJsonResult);
+                    } else {
+                        reject(`Process finished but returned no valid JSON result.`);
+                    }
                 } else {
-                    reject(`Process finished but returned no valid JSON result.`);
+                    reject(`Process exited with code ${code}. Stderr: ${capturedError}`);
                 }
-            } else {
-                reject(`Process exited with code ${code}. Stderr: ${capturedError}`);
-            }
-        });
+            });
+        }
     });
 });

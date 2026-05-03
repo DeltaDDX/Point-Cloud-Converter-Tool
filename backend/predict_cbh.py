@@ -6,60 +6,21 @@ import traceback
 import laspy
 
 import utils
-from dtm import generate_dtm_grid
 from cbh import config
+from cbh.model import CBHModel
 from cbh.pipeline import generate_cbh
-from train_cbh_proxy_model import train_proxy_model
+from dtm import generate_dtm_grid
+from generate_cbh import _get_float, _get_int, _get_number_list
 
 
-def _get_float(params, name, default, minimum=0, allow_zero=False):
-    try:
-        value = float(params.get(name, default))
-    except (TypeError, ValueError):
-        raise ValueError(f"{name} must be a number")
+def predict_cbh_outputs(input_path, output_dir, resolution, model_path, params):
+    if not model_path:
+        raise ValueError("modelPath is required for CBH prediction")
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"CBH model not found: {model_path}")
 
-    if allow_zero:
-        if value < minimum:
-            raise ValueError(f"{name} must be at least {minimum}")
-    elif value <= minimum:
-        raise ValueError(f"{name} must be greater than {minimum}")
-
-    return value
-
-
-def _get_int(params, name, default, minimum=0):
-    try:
-        value = int(params.get(name, default))
-    except (TypeError, ValueError):
-        raise ValueError(f"{name} must be a whole number")
-    if value < minimum:
-        raise ValueError(f"{name} must be at least {minimum}")
-    return value
-
-
-def _get_number_list(params, name, default):
-    raw_value = params.get(name, default)
-    if isinstance(raw_value, str):
-        raw_value = [part.strip() for part in raw_value.split(",") if part.strip()]
-
-    values = []
-    for item in raw_value:
-        try:
-            value = float(item)
-        except (TypeError, ValueError):
-            raise ValueError(f"{name} must contain only numbers")
-        if value < 0:
-            raise ValueError(f"{name} cannot contain negative values")
-        values.append(value)
-
-    if not values:
-        raise ValueError(f"{name} must contain at least one value")
-    return tuple(values)
-
-
-def generate_cbh_outputs(input_path, output_dir, resolution, params):
     os.makedirs(output_dir, exist_ok=True)
-    cbh_progress_end = 95 if params.get("trainModel") else 100
+    model = CBHModel.load(model_path)
 
     with laspy.open(input_path) as las_file:
         width, height, transform, bounds = utils.get_grid_dimensions(
@@ -90,7 +51,8 @@ def generate_cbh_outputs(input_path, output_dir, resolution, params):
             dtm_grid,
             bounds=bounds,
             resolution=resolution,
-            mode="train",
+            mode="predict",
+            model=model,
             output_dir=output_dir,
             transform=transform,
             crs=crs,
@@ -138,36 +100,18 @@ def generate_cbh_outputs(input_path, output_dir, resolution, params):
                 "coverThresholds",
                 config.COVER_THRESHOLDS,
             ),
-            progress_callback=lambda p, m: utils.send_progress(
-                35 + p * ((cbh_progress_end - 35) / 100),
-                m,
-            ),
+            progress_callback=lambda p, m: utils.send_progress(35 + p * 0.65, m),
         )
 
-    if params.get("trainModel"):
-        outputs = result.get("outputs", {}) if result else {}
-        feature_csv = outputs.get("cbh_features_csv")
-        if not feature_csv:
-            raise ValueError("CBH feature CSV was not generated; cannot train model")
+    predicted_path = None
+    if result and "outputs" in result:
+        predicted_path = result["outputs"].get("cbh_predicted")
 
-        model_path = params.get("modelPath") or os.path.join(output_dir, "cbh_proxy_model.pkl")
-        master_csv_path = params.get("masterCsvPath") or os.path.join(
-            output_dir,
-            "proxy_features_master.csv",
-        )
-        utils.send_progress(96, "Training persistent CBH proxy model...")
-        train_proxy_model(
-            [feature_csv],
-            model_path,
-            master_csv_path=master_csv_path,
-            append_to_master=True,
-        )
-
-    return True, "CBH feature extraction complete"
+    return True, predicted_path or output_dir
 
 
 def main():
-    if len(sys.argv) < 5:
+    if len(sys.argv) < 6:
         print(json.dumps({"status": "error", "message": "Missing arguments"}))
         return
 
@@ -175,21 +119,28 @@ def main():
         input_path = sys.argv[1]
         output_dir = sys.argv[2]
         resolution = float(sys.argv[3])
-        params = json.loads(sys.argv[4])
+        model_path = sys.argv[4]
+        params = json.loads(sys.argv[5])
 
-        success, message = generate_cbh_outputs(input_path, output_dir, resolution, params)
+        success, output = predict_cbh_outputs(
+            input_path,
+            output_dir,
+            resolution,
+            model_path,
+            params,
+        )
         if success:
             utils.send_progress(100, "Done")
-            print(json.dumps({"status": "success", "file": output_dir}))
+            print(json.dumps({"status": "success", "file": output}))
         else:
-            print(json.dumps({"status": "error", "message": message}))
+            print(json.dumps({"status": "error", "message": output}))
 
     except Exception as exc:
         print(
             json.dumps(
                 {
                     "status": "error",
-                    "message": f"CBH extraction crash: {str(exc)}",
+                    "message": f"CBH prediction crash: {str(exc)}",
                     "traceback": traceback.format_exc(),
                 }
             )

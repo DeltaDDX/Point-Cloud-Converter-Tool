@@ -167,7 +167,17 @@ modeSelector.addEventListener('change', (e) => {
     } else if (selectedMode === 'cbh') {
         sliderDivElement.innerHTML = '';
         resamplingDivElement.innerHTML = `
-            <label class="has-tooltip" data-tooltip="Parameters for proxy labels and feature rasters">4. CBH Extraction Parameters</label>
+            <label class="has-tooltip" data-tooltip="Choose whether this LAS updates the proxy-trained model or uses an existing model">4. CBH Workflow</label>
+            <select id="cbhWorkflow">
+                <option value="train">Train/Update Proxy Model From LAS</option>
+                <option value="predict">Produce Prediction Raster From Model</option>
+            </select>
+            <div id="cbhModelPicker" style="display: none; margin-top: 12px;">
+                <label class="has-tooltip" data-tooltip="Persistent .pkl model produced by proxy training">CBH Model File</label>
+                <input type="file" id="cbhModelFile" accept=".pkl">
+            </div>
+            <div id="cbhTrainingNote" class="field-note">The selected output folder will receive this run's proxy labels, cbh_features.csv, proxy_features_master.csv, and an updated cbh_proxy_model.pkl.</div>
+            <label class="has-tooltip" data-tooltip="Parameters for proxy labels, model features, and prediction postprocessing" style="margin-top: 16px;">5. CBH Parameters</label>
             <div class="subgrid">
                 <div>
                     <label class="has-tooltip" data-tooltip="Minimum height considered canopy base, in meters">Minimum Canopy Height</label>
@@ -210,8 +220,9 @@ modeSelector.addEventListener('change', (e) => {
                 <label class="has-tooltip" data-tooltip="Comma-separated height thresholds for cover-ratio features">Cover Feature Thresholds (m)</label>
                 <input type="text" id="cbhCoverThresholds" value="0.5,1,2,5">
             </div>
-            <div class="field-note">Outputs are written to a folder: proxy labels, feature rasters, diagnostics, and a CSV training table.</div>
         `;
+        document.getElementById('cbhWorkflow').addEventListener('change', updateCbhWorkflowUi);
+        updateCbhWorkflowUi();
     } else {
         // Clear it if they switch back to Height
         sliderDivElement.innerHTML = ''; 
@@ -223,6 +234,19 @@ modeSelector.addEventListener('change', (e) => {
         `;
     }
 });
+
+function updateCbhWorkflowUi() {
+    const workflow = document.getElementById('cbhWorkflow');
+    const modelPicker = document.getElementById('cbhModelPicker');
+    const trainingNote = document.getElementById('cbhTrainingNote');
+    if (!workflow || !modelPicker || !trainingNote) return;
+
+    const isPredict = workflow.value === 'predict';
+    modelPicker.style.display = isPredict ? 'block' : 'none';
+    trainingNote.innerText = isPredict
+        ? 'The selected output folder will receive cbh_predicted.tif, generated features, valid mask, and diagnostics.'
+        : "The selected output folder will receive this run's proxy labels, cbh_features.csv, proxy_features_master.csv, and an updated cbh_proxy_model.pkl.";
+}
 
 function parseNumberInput(id, label, options = {}) {
     const input = document.getElementById(id);
@@ -263,7 +287,10 @@ function parseNumberListInput(id, label, options = {}) {
 }
 
 function getCbhParams() {
-    return {
+    const workflowInput = document.getElementById('cbhWorkflow');
+    const workflow = workflowInput ? workflowInput.value : 'train';
+    const params = {
+        workflow: workflow,
         minCanopyHeight: parseNumberInput('cbhMinCanopyHeight', 'Minimum Canopy Height', { min: 0 }),
         heightBinSize: parseNumberInput('cbhHeightBinSize', 'Height Bin Size', { min: 0.1 }),
         maxProfileHeight: parseNumberInput('cbhMaxProfileHeight', 'Maximum Profile Height', { min: 1 }),
@@ -275,6 +302,16 @@ function getCbhParams() {
         heightPercentiles: parseNumberListInput('cbhHeightPercentiles', 'Height Percentiles', { min: 0, max: 100 }),
         coverThresholds: parseNumberListInput('cbhCoverThresholds', 'Cover Feature Thresholds', { min: 0 })
     };
+
+    if (workflow === 'predict') {
+        const modelFileInput = document.getElementById('cbhModelFile');
+        if (!modelFileInput || modelFileInput.files.length === 0) {
+            throw new Error('Select a CBH model file for prediction.');
+        }
+        params.modelPath = window.electronAPI.getFilePath(modelFileInput.files[0]);
+    }
+
+    return params;
 }
 
 

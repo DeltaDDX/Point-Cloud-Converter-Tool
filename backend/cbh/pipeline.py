@@ -139,6 +139,13 @@ def generate_cbh(
         if model is None:
             raise ValueError("model is required for predict mode")
         table = features_to_table(feature_data)
+        if getattr(model, "feature_names", None) is not None:
+            expected = list(model.feature_names)
+            actual = list(table["feature_names"])
+            if actual != expected:
+                raise ValueError(
+                    "model feature columns do not match generated CBH features"
+                )
         predictions = model.predict(table["X"])
         cbh_predicted = np.full((height, width), config.NODATA, dtype=np.float32)
         cbh_predicted[table["row"], table["col"]] = predictions

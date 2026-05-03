@@ -8,10 +8,11 @@ class CBHModel:
     Random forest wrapper for CBH training and inference.
     """
 
-    def __init__(self, estimator=None, random_state=42, **forest_kwargs):
+    def __init__(self, estimator=None, random_state=42, feature_names=None, **forest_kwargs):
         self.random_state = random_state
         self.forest_kwargs = forest_kwargs
         self.estimator = estimator
+        self.feature_names = list(feature_names) if feature_names is not None else None
 
     def train(self, X, y):
         X = _validate_feature_matrix(X)
@@ -42,6 +43,7 @@ class CBHModel:
                     "estimator": self.estimator,
                     "random_state": self.random_state,
                     "forest_kwargs": self.forest_kwargs,
+                    "feature_names": self.feature_names,
                 },
                 model_file,
             )
@@ -60,6 +62,7 @@ class CBHModel:
         return cls(
             estimator=payload["estimator"],
             random_state=payload.get("random_state", 42),
+            feature_names=payload.get("feature_names"),
             **payload.get("forest_kwargs", {}),
         )
 
