@@ -43,6 +43,17 @@ def generate_cbh(
     output_dir=None,
     transform=None,
     crs=None,
+    height_bin_size=config.HEIGHT_BIN_SIZE,
+    min_profile_height=config.MIN_PROFILE_HEIGHT,
+    max_profile_height=config.MAX_PROFILE_HEIGHT,
+    min_canopy_height=config.MIN_CANOPY_HEIGHT,
+    cover_threshold=config.COVER_THRESHOLD,
+    min_bin_points=config.MIN_BIN_POINTS,
+    min_column_points=config.MIN_COLUMN_POINTS,
+    gap_tolerance_bins=config.GAP_TOLERANCE_BINS,
+    min_canopy_depth_bins=config.MIN_CANOPY_DEPTH_BINS,
+    height_percentiles=config.HEIGHT_PERCENTILES,
+    canopy_cover_thresholds=config.COVER_THRESHOLDS,
     progress_callback=None,
 ):
     """
@@ -80,9 +91,9 @@ def generate_cbh(
         resolution,
         bounds,
         dtm_grid=dtm_grid,
-        height_bin_size=config.HEIGHT_BIN_SIZE,
-        max_height=config.MAX_PROFILE_HEIGHT,
-        min_height=config.MIN_PROFILE_HEIGHT,
+        height_bin_size=height_bin_size,
+        max_height=max_profile_height,
+        min_height=min_profile_height,
         progress_callback=_scale_progress(progress_callback, 1, 45),
     )
     if vertical_profiles is None:
@@ -92,8 +103,8 @@ def generate_cbh(
         vertical_profiles,
         canopy_height_grid=canopy_height_grid,
         canopy_cover_grid=canopy_cover_grid,
-        height_percentiles=config.HEIGHT_PERCENTILES,
-        canopy_cover_thresholds=config.COVER_THRESHOLDS,
+        height_percentiles=height_percentiles,
+        canopy_cover_thresholds=canopy_cover_thresholds,
         nodata=config.NODATA,
     )
 
@@ -107,19 +118,19 @@ def generate_cbh(
     if mode in {"proxy", "train"}:
         cbh_proxy = estimate_cbh_proxy(
             vertical_profiles,
-            min_canopy_height=config.MIN_CANOPY_HEIGHT,
-            min_bin_points=config.MIN_BIN_POINTS,
-            min_column_points=config.MIN_COLUMN_POINTS,
-            gap_tolerance_bins=config.GAP_TOLERANCE_BINS,
-            min_canopy_depth_bins=config.MIN_CANOPY_DEPTH_BINS,
+            min_canopy_height=min_canopy_height,
+            min_bin_points=min_bin_points,
+            min_column_points=min_column_points,
+            gap_tolerance_bins=gap_tolerance_bins,
+            min_canopy_depth_bins=min_canopy_depth_bins,
             nodata=config.NODATA,
         )
         cbh_proxy = postprocess_cbh(
             cbh_proxy,
             canopy_height_grid=canopy_height_grid,
             canopy_cover_grid=canopy_cover_grid,
-            min_canopy_height=config.MIN_CANOPY_HEIGHT,
-            cover_threshold=config.COVER_THRESHOLD,
+            min_canopy_height=min_canopy_height,
+            cover_threshold=cover_threshold,
             nodata=config.NODATA,
         )
         result["cbh_proxy"] = cbh_proxy
@@ -135,8 +146,8 @@ def generate_cbh(
             cbh_predicted,
             canopy_height_grid=canopy_height_grid,
             canopy_cover_grid=canopy_cover_grid,
-            min_canopy_height=config.MIN_CANOPY_HEIGHT,
-            cover_threshold=config.COVER_THRESHOLD,
+            min_canopy_height=min_canopy_height,
+            cover_threshold=cover_threshold,
             nodata=config.NODATA,
         )
         result["feature_table"] = table

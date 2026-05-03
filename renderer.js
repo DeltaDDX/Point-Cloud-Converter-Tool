@@ -164,6 +164,54 @@ modeSelector.addEventListener('change', (e) => {
 
         // 3. ACTUALLY DRAW THE SLIDER NOW
         updateSlider(); 
+    } else if (selectedMode === 'cbh') {
+        sliderDivElement.innerHTML = '';
+        resamplingDivElement.innerHTML = `
+            <label class="has-tooltip" data-tooltip="Parameters for proxy labels and feature rasters">4. CBH Extraction Parameters</label>
+            <div class="subgrid">
+                <div>
+                    <label class="has-tooltip" data-tooltip="Minimum height considered canopy base, in meters">Minimum Canopy Height</label>
+                    <input type="number" id="cbhMinCanopyHeight" value="2" step="0.1" min="0">
+                </div>
+                <div>
+                    <label class="has-tooltip" data-tooltip="Vertical profile bin size, in meters">Height Bin Size</label>
+                    <input type="number" id="cbhHeightBinSize" value="0.5" step="0.1" min="0.1">
+                </div>
+                <div>
+                    <label class="has-tooltip" data-tooltip="Maximum normalized point height to profile, in meters">Maximum Profile Height</label>
+                    <input type="number" id="cbhMaxProfileHeight" value="60" step="1" min="1">
+                </div>
+                <div>
+                    <label class="has-tooltip" data-tooltip="Minimum returns in a cell before it can be used">Minimum Cell Returns</label>
+                    <input type="number" id="cbhMinColumnPoints" value="5" step="1" min="1">
+                </div>
+                <div>
+                    <label class="has-tooltip" data-tooltip="Minimum returns needed for a vertical bin to count as occupied">Minimum Bin Returns</label>
+                    <input type="number" id="cbhMinBinPoints" value="2" step="1" min="1">
+                </div>
+                <div>
+                    <label class="has-tooltip" data-tooltip="Allowed empty bins inside a sustained canopy segment">Gap Tolerance Bins</label>
+                    <input type="number" id="cbhGapToleranceBins" value="1" step="1" min="0">
+                </div>
+                <div>
+                    <label class="has-tooltip" data-tooltip="Occupied bins needed after first canopy hit">Minimum Canopy Depth Bins</label>
+                    <input type="number" id="cbhMinCanopyDepthBins" value="2" step="1" min="1">
+                </div>
+                <div>
+                    <label class="has-tooltip" data-tooltip="Cells below this cover ratio are constrained to zero CBH">Cover Ratio Threshold</label>
+                    <input type="number" id="cbhCoverThreshold" value="0.1" step="0.01" min="0" max="1">
+                </div>
+            </div>
+            <div style="margin-top: 12px;">
+                <label class="has-tooltip" data-tooltip="Comma-separated normalized-height percentile features">Height Percentiles</label>
+                <input type="text" id="cbhHeightPercentiles" value="10,25,50,75,90,95">
+            </div>
+            <div style="margin-top: 12px;">
+                <label class="has-tooltip" data-tooltip="Comma-separated height thresholds for cover-ratio features">Cover Feature Thresholds (m)</label>
+                <input type="text" id="cbhCoverThresholds" value="0.5,1,2,5">
+            </div>
+            <div class="field-note">Outputs are written to a folder: proxy labels, feature rasters, diagnostics, and a CSV training table.</div>
+        `;
     } else {
         // Clear it if they switch back to Height
         sliderDivElement.innerHTML = ''; 
@@ -175,6 +223,59 @@ modeSelector.addEventListener('change', (e) => {
         `;
     }
 });
+
+function parseNumberInput(id, label, options = {}) {
+    const input = document.getElementById(id);
+    const value = Number(input.value);
+    if (!Number.isFinite(value)) {
+        throw new Error(`${label} must be a number.`);
+    }
+    if (options.integer && !Number.isInteger(value)) {
+        throw new Error(`${label} must be a whole number.`);
+    }
+    if (options.min !== undefined && value < options.min) {
+        throw new Error(`${label} must be at least ${options.min}.`);
+    }
+    if (options.max !== undefined && value > options.max) {
+        throw new Error(`${label} must be no more than ${options.max}.`);
+    }
+    return value;
+}
+
+function parseNumberListInput(id, label, options = {}) {
+    const input = document.getElementById(id);
+    const values = input.value
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .map(Number);
+
+    if (values.length === 0 || values.some((value) => !Number.isFinite(value))) {
+        throw new Error(`${label} must be a comma-separated list of numbers.`);
+    }
+    if (options.min !== undefined && values.some((value) => value < options.min)) {
+        throw new Error(`${label} cannot include values below ${options.min}.`);
+    }
+    if (options.max !== undefined && values.some((value) => value > options.max)) {
+        throw new Error(`${label} cannot include values above ${options.max}.`);
+    }
+    return values;
+}
+
+function getCbhParams() {
+    return {
+        minCanopyHeight: parseNumberInput('cbhMinCanopyHeight', 'Minimum Canopy Height', { min: 0 }),
+        heightBinSize: parseNumberInput('cbhHeightBinSize', 'Height Bin Size', { min: 0.1 }),
+        maxProfileHeight: parseNumberInput('cbhMaxProfileHeight', 'Maximum Profile Height', { min: 1 }),
+        minColumnPoints: parseNumberInput('cbhMinColumnPoints', 'Minimum Cell Returns', { min: 1, integer: true }),
+        minBinPoints: parseNumberInput('cbhMinBinPoints', 'Minimum Bin Returns', { min: 1, integer: true }),
+        gapToleranceBins: parseNumberInput('cbhGapToleranceBins', 'Gap Tolerance Bins', { min: 0, integer: true }),
+        minCanopyDepthBins: parseNumberInput('cbhMinCanopyDepthBins', 'Minimum Canopy Depth Bins', { min: 1, integer: true }),
+        coverThreshold: parseNumberInput('cbhCoverThreshold', 'Cover Ratio Threshold', { min: 0, max: 1 }),
+        heightPercentiles: parseNumberListInput('cbhHeightPercentiles', 'Height Percentiles', { min: 0, max: 100 }),
+        coverThresholds: parseNumberListInput('cbhCoverThresholds', 'Cover Feature Thresholds', { min: 0 })
+    };
+}
 
 
 // renderer.js
@@ -191,6 +292,7 @@ runBtn.addEventListener('click', async () => {
     
     // Get thresholds
     let thresholds = [];
+    let cbhParams = null;
     const slider = document.querySelector('.js-slider-container');
     if (mode === 'cover' && slider && slider.noUiSlider) {
         const rawValues = slider.noUiSlider.get();
@@ -212,6 +314,14 @@ runBtn.addEventListener('click', async () => {
         }
         
         thresholds = val;
+    } else if (mode === 'cbh') {
+        try {
+            cbhParams = getCbhParams();
+        } catch (err) {
+            alert(err.message);
+            runBtn.disabled = false;
+            return;
+        }
     }
 
     // --- UI SETUP FOR LOADING ---
@@ -229,7 +339,8 @@ runBtn.addEventListener('click', async () => {
             inputPath: filePath,
             mode: mode,
             resolution: resolution,
-            thresholds: thresholds
+            thresholds: thresholds,
+            cbhParams: cbhParams
         });
 
         if (response.status === 'success') {

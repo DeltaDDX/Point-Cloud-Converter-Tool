@@ -93,31 +93,49 @@ ipcMain.handle('generate-histogram', async (event, inputPath) => {
 
 // --- HANDLER: Run Python (CHM / Cover) ---
 ipcMain.handle('run-python', async (event, args) => {
-    const { inputPath, mode, resolution, thresholds } = args; 
+    const { inputPath, mode, resolution, thresholds, cbhParams } = args; 
     const win = BrowserWindow.fromWebContents(event.sender);
     const dir = path.dirname(inputPath);
     const ext = path.extname(inputPath);
     const name = path.basename(inputPath, ext);
-    
-    let baseOutputName = '';
-    if (mode === 'cover') {
-        const bandCount = (thresholds && thresholds.length > 0) ? thresholds.length + 1 : 1;
-        baseOutputName = `${name}_${mode}_${bandCount}bands_${resolution}m.tif`;
+
+    let finalOutputPath = '';
+
+    if (mode === 'cbh') {
+        const defaultPath = path.join(dir, `${name}_cbh_${resolution}m`);
+        const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+            title: 'Choose CBH Output Folder',
+            defaultPath,
+            properties: ['openDirectory', 'createDirectory']
+        });
+
+        if (canceled || filePaths.length === 0) {
+            return { status: 'cancelled' };
+        }
+
+        finalOutputPath = filePaths[0];
     } else {
-        baseOutputName = `${name}_${mode}_${resolution}m.tif`;
-    }
+        let baseOutputName = '';
+        if (mode === 'cover') {
+            const bandCount = (thresholds && thresholds.length > 0) ? thresholds.length + 1 : 1;
+            baseOutputName = `${name}_${mode}_${bandCount}bands_${resolution}m.tif`;
+        } else {
+            baseOutputName = `${name}_${mode}_${resolution}m.tif`;
+        }
 
-    const { canceled, filePath } = await dialog.showSaveDialog(win, {
-        title: 'Save Raster Output',
-        defaultPath: path.join(dir, baseOutputName),
-        filters: [
-            { name: 'GeoTIFF', extensions: ['tif', 'tiff'] },
-            { name: 'All Files', extensions: ['*'] }
-        ]
-    });
+        const { canceled, filePath } = await dialog.showSaveDialog(win, {
+            title: 'Save Raster Output',
+            defaultPath: path.join(dir, baseOutputName),
+            filters: [
+                { name: 'GeoTIFF', extensions: ['tif', 'tiff'] },
+                { name: 'All Files', extensions: ['*'] }
+            ]
+        });
 
-    if (canceled) {
-        return { status: 'cancelled' };
+        if (canceled) {
+            return { status: 'cancelled' };
+        }
+        finalOutputPath = filePath;
     }
 
     return new Promise((resolve, reject) => {
@@ -132,10 +150,10 @@ ipcMain.handle('run-python', async (event, args) => {
         let scriptName = '';
         if (mode === 'height') scriptName = 'generate_chm.py';
         else if (mode === 'cover') scriptName = 'generate_cover.py';
+        else if (mode === 'cbh') scriptName = 'generate_cbh.py';
         else return reject(`Unknown mode selected: ${mode}`);
 
         const scriptPath = path.join(__dirname, 'backend', scriptName);
-        const finalOutputPath = filePath;
 
         console.log(`Processing: ${inputPath}`);
         console.log(`Saving to: ${finalOutputPath}`);
@@ -144,8 +162,12 @@ ipcMain.handle('run-python', async (event, args) => {
             '-u', scriptPath, inputPath, finalOutputPath, resolution
         ];
 
-        const thresholdsToSend = thresholds || [];
-        scriptArgs.push(JSON.stringify(thresholdsToSend));
+        if (mode === 'cbh') {
+            scriptArgs.push(JSON.stringify(cbhParams || {}));
+        } else {
+            const thresholdsToSend = thresholds || [];
+            scriptArgs.push(JSON.stringify(thresholdsToSend));
+        }
 
         const pythonProcess = spawn(pythonExecutable, scriptArgs);
 
