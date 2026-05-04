@@ -164,6 +164,68 @@ modeSelector.addEventListener('change', (e) => {
 
         // 3. ACTUALLY DRAW THE SLIDER NOW
         updateSlider(); 
+    } else if (selectedMode === 'cbh') {
+        sliderDivElement.innerHTML = '';
+        resamplingDivElement.innerHTML = `
+            <label class="has-tooltip" data-tooltip="Choose whether this LAS updates the proxy-trained model or uses an existing model">4. CBH Workflow</label>
+            <select id="cbhWorkflow">
+                <option value="train">Train/Update Proxy Model From LAS</option>
+                <option value="predict">Produce Prediction Raster From Model</option>
+            </select>
+            <div id="cbhModelPicker" style="display: none; margin-top: 12px;">
+                <label class="has-tooltip" data-tooltip="Persistent .pkl model produced by proxy training">CBH Model File</label>
+                <select id="cbhModelSelect">
+                    <option value="">Loading models...</option>
+                </select>
+                <div id="cbhModelStatus" class="field-note"></div>
+            </div>
+            <div id="cbhTrainingNote" class="field-note">The selected output folder receives this run's rasters and CSV. The persistent model and master training CSV are saved inside this project under data/cbh_training.</div>
+            <label class="has-tooltip" data-tooltip="Parameters for proxy labels, model features, and prediction postprocessing" style="margin-top: 16px;">5. CBH Parameters</label>
+            <div class="subgrid">
+                <div>
+                    <label class="has-tooltip" data-tooltip="Minimum height considered canopy base, in meters">Minimum Canopy Height</label>
+                    <input type="number" id="cbhMinCanopyHeight" value="2" step="0.1" min="0">
+                </div>
+                <div>
+                    <label class="has-tooltip" data-tooltip="Vertical profile bin size, in meters">Height Bin Size</label>
+                    <input type="number" id="cbhHeightBinSize" value="0.5" step="0.1" min="0.1">
+                </div>
+                <div>
+                    <label class="has-tooltip" data-tooltip="Maximum normalized point height to profile, in meters">Maximum Profile Height</label>
+                    <input type="number" id="cbhMaxProfileHeight" value="60" step="1" min="1">
+                </div>
+                <div>
+                    <label class="has-tooltip" data-tooltip="Minimum returns in a cell before it can be used">Minimum Cell Returns</label>
+                    <input type="number" id="cbhMinColumnPoints" value="5" step="1" min="1">
+                </div>
+                <div>
+                    <label class="has-tooltip" data-tooltip="Minimum returns needed for a vertical bin to count as occupied">Minimum Bin Returns</label>
+                    <input type="number" id="cbhMinBinPoints" value="2" step="1" min="1">
+                </div>
+                <div>
+                    <label class="has-tooltip" data-tooltip="Allowed empty bins inside a sustained canopy segment">Gap Tolerance Bins</label>
+                    <input type="number" id="cbhGapToleranceBins" value="1" step="1" min="0">
+                </div>
+                <div>
+                    <label class="has-tooltip" data-tooltip="Occupied bins needed after first canopy hit">Minimum Canopy Depth Bins</label>
+                    <input type="number" id="cbhMinCanopyDepthBins" value="2" step="1" min="1">
+                </div>
+                <div>
+                    <label class="has-tooltip" data-tooltip="Cells below this cover ratio are constrained to zero CBH">Cover Ratio Threshold</label>
+                    <input type="number" id="cbhCoverThreshold" value="0.1" step="0.01" min="0" max="1">
+                </div>
+            </div>
+            <div style="margin-top: 12px;">
+                <label class="has-tooltip" data-tooltip="Comma-separated normalized-height percentile features">Height Percentiles</label>
+                <input type="text" id="cbhHeightPercentiles" value="10,25,50,75,90,95">
+            </div>
+            <div style="margin-top: 12px;">
+                <label class="has-tooltip" data-tooltip="Comma-separated height thresholds for cover-ratio features">Cover Feature Thresholds (m)</label>
+                <input type="text" id="cbhCoverThresholds" value="0.5,1,2,5">
+            </div>
+        `;
+        document.getElementById('cbhWorkflow').addEventListener('change', updateCbhWorkflowUi);
+        updateCbhWorkflowUi();
     } else {
         // Clear it if they switch back to Height
         sliderDivElement.innerHTML = ''; 
@@ -175,6 +237,129 @@ modeSelector.addEventListener('change', (e) => {
         `;
     }
 });
+
+async function updateCbhWorkflowUi() {
+    const workflow = document.getElementById('cbhWorkflow');
+    const modelPicker = document.getElementById('cbhModelPicker');
+    const trainingNote = document.getElementById('cbhTrainingNote');
+    if (!workflow || !modelPicker || !trainingNote) return;
+
+    const isPredict = workflow.value === 'predict';
+    modelPicker.style.display = isPredict ? 'block' : 'none';
+    trainingNote.innerText = isPredict
+        ? 'The selected output folder will receive cbh_predicted.tif, generated features, valid mask, and diagnostics.'
+        : "The selected output folder receives this run's rasters and CSV. The persistent model and master training CSV are saved inside this project under data/cbh_training.";
+
+    if (isPredict) {
+        await populateCbhModelSelect();
+    }
+}
+
+async function populateCbhModelSelect() {
+    const select = document.getElementById('cbhModelSelect');
+    const status = document.getElementById('cbhModelStatus');
+    if (!select || !status) return;
+
+    select.innerHTML = '<option value="">Loading models...</option>';
+    status.innerText = '';
+
+    try {
+        const models = await window.electronAPI.listCbhModels();
+        if (!models || models.length === 0) {
+            select.innerHTML = '<option value="">No project models found</option>';
+            status.innerText = 'Train a proxy model first. Models are read from data/cbh_training/models.';
+            return;
+        }
+
+        select.innerHTML = models.map((model) => {
+            const modified = new Date(model.modifiedMs).toLocaleString();
+            return `<option value="${escapeHtmlAttribute(model.path)}">${escapeHtml(model.name)} - ${escapeHtml(modified)}</option>`;
+        }).join('');
+        status.innerText = 'Models are read from data/cbh_training/models.';
+    } catch (err) {
+        select.innerHTML = '<option value="">Could not load models</option>';
+        status.innerText = String(err);
+    }
+}
+
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function escapeHtmlAttribute(value) {
+    return escapeHtml(value);
+}
+
+function parseNumberInput(id, label, options = {}) {
+    const input = document.getElementById(id);
+    const value = Number(input.value);
+    if (!Number.isFinite(value)) {
+        throw new Error(`${label} must be a number.`);
+    }
+    if (options.integer && !Number.isInteger(value)) {
+        throw new Error(`${label} must be a whole number.`);
+    }
+    if (options.min !== undefined && value < options.min) {
+        throw new Error(`${label} must be at least ${options.min}.`);
+    }
+    if (options.max !== undefined && value > options.max) {
+        throw new Error(`${label} must be no more than ${options.max}.`);
+    }
+    return value;
+}
+
+function parseNumberListInput(id, label, options = {}) {
+    const input = document.getElementById(id);
+    const values = input.value
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .map(Number);
+
+    if (values.length === 0 || values.some((value) => !Number.isFinite(value))) {
+        throw new Error(`${label} must be a comma-separated list of numbers.`);
+    }
+    if (options.min !== undefined && values.some((value) => value < options.min)) {
+        throw new Error(`${label} cannot include values below ${options.min}.`);
+    }
+    if (options.max !== undefined && values.some((value) => value > options.max)) {
+        throw new Error(`${label} cannot include values above ${options.max}.`);
+    }
+    return values;
+}
+
+function getCbhParams() {
+    const workflowInput = document.getElementById('cbhWorkflow');
+    const workflow = workflowInput ? workflowInput.value : 'train';
+    const params = {
+        workflow: workflow,
+        minCanopyHeight: parseNumberInput('cbhMinCanopyHeight', 'Minimum Canopy Height', { min: 0 }),
+        heightBinSize: parseNumberInput('cbhHeightBinSize', 'Height Bin Size', { min: 0.1 }),
+        maxProfileHeight: parseNumberInput('cbhMaxProfileHeight', 'Maximum Profile Height', { min: 1 }),
+        minColumnPoints: parseNumberInput('cbhMinColumnPoints', 'Minimum Cell Returns', { min: 1, integer: true }),
+        minBinPoints: parseNumberInput('cbhMinBinPoints', 'Minimum Bin Returns', { min: 1, integer: true }),
+        gapToleranceBins: parseNumberInput('cbhGapToleranceBins', 'Gap Tolerance Bins', { min: 0, integer: true }),
+        minCanopyDepthBins: parseNumberInput('cbhMinCanopyDepthBins', 'Minimum Canopy Depth Bins', { min: 1, integer: true }),
+        coverThreshold: parseNumberInput('cbhCoverThreshold', 'Cover Ratio Threshold', { min: 0, max: 1 }),
+        heightPercentiles: parseNumberListInput('cbhHeightPercentiles', 'Height Percentiles', { min: 0, max: 100 }),
+        coverThresholds: parseNumberListInput('cbhCoverThresholds', 'Cover Feature Thresholds', { min: 0 })
+    };
+
+    if (workflow === 'predict') {
+        const modelSelect = document.getElementById('cbhModelSelect');
+        if (!modelSelect || !modelSelect.value) {
+            throw new Error('Select a CBH model for prediction.');
+        }
+        params.modelPath = modelSelect.value;
+    }
+
+    return params;
+}
 
 
 // renderer.js
@@ -191,6 +376,7 @@ runBtn.addEventListener('click', async () => {
     
     // Get thresholds
     let thresholds = [];
+    let cbhParams = null;
     const slider = document.querySelector('.js-slider-container');
     if (mode === 'cover' && slider && slider.noUiSlider) {
         const rawValues = slider.noUiSlider.get();
@@ -212,6 +398,14 @@ runBtn.addEventListener('click', async () => {
         }
         
         thresholds = val;
+    } else if (mode === 'cbh') {
+        try {
+            cbhParams = getCbhParams();
+        } catch (err) {
+            alert(err.message);
+            runBtn.disabled = false;
+            return;
+        }
     }
 
     // --- UI SETUP FOR LOADING ---
@@ -229,7 +423,8 @@ runBtn.addEventListener('click', async () => {
             inputPath: filePath,
             mode: mode,
             resolution: resolution,
-            thresholds: thresholds
+            thresholds: thresholds,
+            cbhParams: cbhParams
         });
 
         if (response.status === 'success') {

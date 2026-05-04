@@ -1,5 +1,6 @@
 # Python
 venv/
+.venv/
 __pycache__/
 *.py[cod]
 
@@ -8,6 +9,7 @@ node_modules/
 dist/
 
 # LiDAR / Data Files
+data/cbh_training/
 *.laz
 *.las
 *.pts

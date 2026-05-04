@@ -44,6 +44,43 @@ Start the Electron desktop app:
 npm start
 ```
 
+## Build a Windows Executable
+
+The packaged app includes the Python backend and the project virtual environment.
+Before building, make sure `.venv` exists and has the Python dependencies installed:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+Install Node dependencies:
+
+```powershell
+npm install
+```
+
+Create an unpacked build for quick packaging checks:
+
+```powershell
+npm run pack -- --publish never
+```
+
+Create shippable Windows outputs:
+
+```powershell
+npm run dist -- --publish never
+```
+
+Build outputs are written to `dist/`, including:
+
+- `Point Cloud Converter Tool Setup 1.0.0.exe`
+- `Point Cloud Converter Tool 1.0.0.exe`
+- `win-unpacked/Point Cloud Converter Tool.exe`
+
+The packaged app stores persistent CBH model data in the app user-data folder so installed builds can write safely. In development, CBH models are stored under `data/cbh_training/`.
+
 ## Basic Use
 
 1. Select a `.las` or `.laz` point-cloud file.
